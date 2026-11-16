@@ -150,7 +150,7 @@ _PFN = {}
 
 
 def pfn_predict(Xa, ya, Xbs, seed, ctx):
-    """TabPFN v2 (open v2 classifier weights), default settings, on CPU. Training sets larger than ctx rows are
+    """TabPFN v2 (open v2 classifier weights), default settings, on a GPU when one is available. Training sets larger than ctx rows are
     replaced by a stratified random subsample of ctx rows (the context). Test rows are predicted in chunks."""
     os.environ.setdefault('TABPFN_ALLOW_CPU_LARGE_DATASET', '1')
     from tabpfn import TabPFNClassifier
@@ -158,7 +158,7 @@ def pfn_predict(Xa, ya, Xbs, seed, ctx):
     if len(ya) > ctx:
         keep = train_test_split(np.arange(len(ya)), train_size=ctx, stratify=ya, random_state=seed)[0]
         Xa, ya = Xa[np.sort(keep)], ya[np.sort(keep)]
-    kw = dict(device='cpu', random_state=seed, ignore_pretraining_limits=True)
+    kw = dict(device='cuda' if torch.cuda.is_available() else 'cpu', random_state=seed, ignore_pretraining_limits=True)
     try:
         clf = TabPFNClassifier.create_default_for_version(ModelVersion.V2, **kw)
     except TypeError:
@@ -297,7 +297,7 @@ def job_small(ds, rep, fold, C):
     torch.set_num_threads(1)
     q = C.get('quick', False)
     rows, out = [], dict(ds=ds, rep=rep, fold=fold)
-    models = C.get('small_models', ['xgb', 'aagb_ig', 'tabpfn', 'tabnet_t', 'ftt_t'])
+    models = C.get('small_models', ['xgb', 'aagb_ig', 'tabnet_t', 'ftt_t'])
     old = [m for m in models if m in ('xgb', 'aagb_ig')]
     if old:
         r = A2.job_main(ds, 'main', rep, fold, old, dict(C, imb=False, explain=False))
@@ -332,6 +332,32 @@ def job_small(ds, rep, fold, C):
     return out
 
 
+def job_pfn(ds, rep, fold, C):
+    """TabPFN only, on the same outer folds as every other model (run separately on a GPU). Small datasets: threshold
+    from 3 inner out-of-fold folds; larger datasets: threshold from the same 20% inner hold-out as the other models."""
+    A2._setup()
+    t0 = time.time()
+    if ds in LARGE:
+        D = load_large(ds)
+        y = D[1]
+        tr, te = A2.outer_splits(y, C['R_large'])[rep * K_OUT + fold]
+        Xtr, Xte = A2.prep(D, tr, te)
+        ytr, yte, s0 = y[tr], y[te], 1000 * (rep + 1) + 10 * fold
+        a, b = train_test_split(np.arange(len(ytr)), test_size=0.2, stratify=ytr, random_state=s0)
+        Xa, Xb = A2.prep(D, tr[a], tr[b])
+        pb = pfn_predict(Xa, ytr[a], [Xb], s0, C['ctx_large'])[0]
+        thr = A2.best_thr(ytr[b], pb)
+    else:
+        D, tr, te, Xtr, ytr, Xte, yte, s0 = A2._fold_data(ds, 'main', rep, fold, C['R'])
+        oof = np.zeros(len(ytr))
+        for k, (a, b) in enumerate(StratifiedKFold(A2.K_IN, shuffle=True, random_state=s0).split(Xtr, ytr)):
+            Xa, Xb = A2.prep(D, tr[a], tr[b])
+            oof[b] = pfn_predict(Xa, ytr[a], [Xb], s0 + k, C['ctx_small'])[0]
+        thr = A2.best_thr(ytr, oof)
+    p = pfn_predict(Xtr, ytr, [Xte], s0, C['ctx_large'] if ds in LARGE else C['ctx_small'])[0]
+    return dict(ds=ds, rep=rep, fold=fold, rows=[_row('tabpfn', yte, p, thr, time.time() - t0)])
+
+
 def job_large(ds, rep, fold, C):
     """One outer fold on a larger dataset. Hyperparameters are tuned with the same TPE budget on one stratified
     20% inner hold-out (instead of 3 inner folds); the threshold is chosen on that hold-out."""
@@ -347,7 +373,7 @@ def job_large(ds, rep, fold, C):
     Xa, Xb = A2.prep(D, tr[a], tr[b])
     inner = [(Xa, ytr[a], Xb, ytr[b], b)]
     rows = []
-    for model in C.get('large_models', ['rf', 'xgb', 'lgbm', 'cat', 'mlp', 'tabpfn', 'aagb_rm', 'aagb_ig', 'aagb_ig_ins']):
+    for model in C.get('large_models', ['rf', 'xgb', 'lgbm', 'cat', 'mlp', 'aagb_rm', 'aagb_ig', 'aagb_ig_ins']):
         t0 = time.time()
         if model == 'tabpfn':
             pb = pfn_predict(Xa, ytr[a], [Xb], s0, C['ctx_large'])[0]
@@ -387,6 +413,7 @@ def run3(jobs, C):
         tv = tabpfn.__version__
     except Exception as e:
         tv = 'NA(%s)' % type(e).__name__
+    print('@@DEV|cuda=%s;%s' % (torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'), flush=True)
     print('@@VER|py=%s;np=%s;pd=%s;sk=%s;xgb=%s;lgb=%s;cat=%s;torch=%s;optuna=%s;imblearn=%s;tabpfn=%s' % (
         platform.python_version(), np.__version__, pd.__version__, sklearn.__version__, xgboost.__version__,
         lightgbm.__version__, catboost.__version__, torch.__version__, optuna.__version__, imblearn.__version__, tv), flush=True)
@@ -400,7 +427,10 @@ def run3(jobs, C):
             A2.emit(ds, 'AUD3', 'base', AUDIT[ds], 1)
             A2.emit(ds, 'VARS3', 'names', ';'.join(dict.fromkeys(groups)))
     T0 = time.time()
-    fn = lambda ds, r, f: job_large(ds, r, f, dict(C, R=C['R_large'])) if ds in LARGE else job_small(ds, r, f, C)
+    if C.get('pfn_only'):
+        fn = lambda ds, r, f: job_pfn(ds, r, f, C)
+    else:
+        fn = lambda ds, r, f: job_large(ds, r, f, dict(C, R=C['R_large'])) if ds in LARGE else job_small(ds, r, f, C)
     try:
         it = Parallel(n_jobs=C['n_jobs'], return_as='generator_unordered')(delayed(fn)(*j) for j in jobs)
     except Exception:
