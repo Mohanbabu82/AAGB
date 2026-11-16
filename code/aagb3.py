@@ -3,7 +3,7 @@
 #       with XGBoost and AAGB-IG re-run in the same job so that every comparison is paired by outer fold;
 #   (2) leakage audit of TabNet-feature stacking (as in Xia et al.): in-sample versus cross-fitted TabNet masks
 #       and TabNet decision embeddings as extra XGBoost inputs;
-#   (3) two larger datasets (Diabetes 130-US Hospitals, CDC Diabetes Health Indicators) with all baselines,
+#   (3) two larger datasets (Diabetes 130-US Hospitals, CDC Diabetes Health Indicators; 10,000-record stratified samples) with all baselines,
 #       AAGB-RM, AAGB-IG and in-sample AAGB-IG.
 # Every result is printed as a checksummed @@ line (one line per model and outer fold).
 import os, time, itertools, warnings
@@ -16,9 +16,9 @@ from sklearn.metrics import average_precision_score
 import aagb2 as A2
 
 K_OUT = A2.K_OUT
-FMK = ['roc', 'pr', 'brier', 'ece', 'f15', 'f1t', 'mcct', 'senst', 'spect', 'prect', 'bacct', 'thr', 'secs']
+FMK = ['roc', 'pr', 'brier', 'ece', 'f15', 'f1t', 'senst', 'spect', 'thr', 'secs']
 LARGE = ('diab130', 'cdc')
-CDC_N = 70000          # stratified random subsample of the 253,680 CDC records (seed 42), stated in the paper
+N_LARGE = 10000        # each larger dataset is reduced to a stratified random sample of 10,000 records (seed 42)
 MEDS_MIN = 0.01        # medication columns kept when at least 1% of encounters are not 'No'
 DROP_DISP = {11, 13, 14, 19, 20, 21}  # discharged as expired or to hospice (Strack et al.)
 
@@ -82,6 +82,9 @@ def load_large(ds):
         raw = raw.sort_values('encounter_id', kind='stable').drop_duplicates('patient_nbr', keep='first')
         n1 = len(raw)
         raw = raw[~raw['discharge_disposition_id'].astype(int).isin(DROP_DISP)].reset_index(drop=True)
+        n2, yall = len(raw), (raw['readmitted'] == '<30').astype(int).values
+        keep = train_test_split(np.arange(n2), train_size=N_LARGE, stratify=yall, random_state=A2.SEED)[0]
+        raw = raw.iloc[np.sort(keep)].reset_index(drop=True)
         y = (raw['readmitted'] == '<30').astype(int).values
         num = ['age', 'time_in_hospital', 'num_lab_procedures', 'num_procedures', 'num_medications', 'number_outpatient',
                'number_emergency', 'number_inpatient', 'number_diagnoses']
@@ -110,7 +113,7 @@ def load_large(ds):
         for c in ('change', 'diabetesMed'):
             df[c] = raw[c].astype(str)
             cat.append(c)
-        AUDIT[ds] = [n0, n1, len(df), int(y.sum()), int(df.duplicated().sum())]
+        AUDIT[ds] = [n0, n1, n2, int(yall.sum()), len(df), int(y.sum()), int(df.duplicated().sum())]
     elif ds == 'cdc':
         try:
             raw = pd.read_csv(A2._find('diabetes_binary_health_indicators_BRFSS2015.csv'))
@@ -119,7 +122,7 @@ def load_large(ds):
         raw = raw.drop(columns=[c for c in raw.columns if c.lower() == 'id'])
         n0, ydup = len(raw), int(raw.duplicated().sum())
         yall = raw['Diabetes_binary'].astype(int).values
-        idx = train_test_split(np.arange(n0), train_size=CDC_N, stratify=yall, random_state=A2.SEED)[0]
+        idx = train_test_split(np.arange(n0), train_size=N_LARGE, stratify=yall, random_state=A2.SEED)[0]
         raw = raw.iloc[np.sort(idx)].reset_index(drop=True)
         y = raw.pop('Diabetes_binary').astype(int).values
         df = raw.astype(float)
@@ -369,7 +372,11 @@ def job_large(ds, rep, fold, C):
 # ---------------------------------------------------------------- orchestration
 def emit_rows(res):
     for r in res['rows']:
-        A2.emit(res['ds'], 'FM', '%s:%d:%d' % (r['model'], res['rep'], res['fold']), [r.get(k, np.nan) for k in FMK])
+        key = '%s:%d:%d' % (r['model'], res['rep'], res['fold'])
+        if r['model'].startswith('L:'):  # leakage audit: threshold-free metrics only
+            A2.emit(res['ds'], 'LK', key, [r['roc'], r['pr'], r['brier']])
+        else:
+            A2.emit(res['ds'], 'FM', key, [r.get(k, np.nan) for k in FMK[:-1]] + [r.get('secs', np.nan) / 1e4 * 10])
 
 
 def run3(jobs, C):
