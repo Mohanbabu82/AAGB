@@ -76,9 +76,9 @@ Status key: **Done** = new code or experiment plus a manuscript change. **Partly
 
 | Item | Status | Where |
 |---|---|---|
-| Abstract describes the extended study (TabPFN v2, tuned deep models, two larger datasets, TabNet audit); "a row-mean design"; 242 words | Done | Abstract |
+| Abstract describes the extended study (TabPFN v2, tuned deep models, two larger datasets, TabNet audit); "a row-mean design"; 249 words | Done | Abstract |
 | Introduction no longer claims published hybrids use the row-mean design or in-sample features | Done | Sec. I, third paragraph (consistent with Table I "Not stated") |
-| AI system cited in each section (Sections I–VII, first paragraph) | Done | Reference [8] |
+| AI system cited in each section (Sections I–VII, first paragraph) | Done | Reference [8] (the AI reference moved from [61] to [8] because references are numbered in order of first citation) |
 | DOI line year 2026 | Done | Title page |
 | Python and library versions checked | Done | Match the @@VER lines of the v7 logs (CPU 3.13.18, GPU 3.13.16) |
 | Zenodo DOI | **Author** | Requires the author's Zenodo account |
