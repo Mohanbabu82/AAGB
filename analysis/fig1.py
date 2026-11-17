@@ -59,7 +59,7 @@ def main(out):
     ax.text(3.2, 9.18, r'$\mathbf{x}_i$ re-enters at the gate, so column $j$ of $A_f$ multiplies feature $j$', fontsize=6.6, color=GREY, ha='left', va='center')
     ax.text(9.97, y0 - 0.2, r'$\partial\mathcal{L}/\partial A_{f,ij}\ \propto\ x_{ij}\,[\nabla\phi_\psi]_j$' + '\nfeature-specific gradient', fontsize=6.6, color=RED, ha='center', va='top', linespacing=1.3)
     ax.text(13.17, y0 - 0.2, 'used for training only,\nthen discarded', fontsize=6.6, color=RED, ha='center', va='top', linespacing=1.3)
-    ax.text(0.4, 5.6, 'Original design (AAGB-RM): the gate ' + r'$g_i=\frac{1}{d}\sum_j A_{f,ij}$' + ' multiplies the latent vector, so all feature weights of a sample receive the same gradient.',
+    ax.text(0.4, 5.6, 'Row-mean design (AAGB-RM): the gate ' + r'$g_i=\frac{1}{d}\sum_j A_{f,ij}$' + ' multiplies the latent vector, so all feature weights of a sample receive the same gradient.',
             fontsize=6.4, color=GREY, va='center')
 
     # ---- Stage 2
