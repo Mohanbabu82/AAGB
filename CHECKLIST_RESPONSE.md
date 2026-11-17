@@ -70,4 +70,18 @@ Status key: **Done** = new code or experiment plus a manuscript change. **Partly
 | AI disclosure with sections and citation | Done | Acknowledgment; reference to the AI system |
 | Software versions checked against run logs | Done | CPU logs report Python 3.13.18; TabPFN GPU run Python 3.13.16 (Sec. IV-I) |
 | Zenodo DOI for the code | **Author** | Archive the GitHub release on Zenodo and add the DOI to the code-availability statement |
-| DOI line year | Template placeholder | Filled by IEEE at publication |
+| DOI line year | Done | Template line now reads ACCESS.2026; footers VOLUME XX, 2026 |
+
+## Third review
+
+| Item | Status | Where |
+|---|---|---|
+| Abstract describes the extended study (TabPFN v2, tuned deep models, two larger datasets, TabNet audit); "a row-mean design"; 242 words | Done | Abstract |
+| Introduction no longer claims published hybrids use the row-mean design or in-sample features | Done | Sec. I, third paragraph (consistent with Table I "Not stated") |
+| AI system cited in each section (Sections I–VII, first paragraph) | Done | Reference [8] |
+| DOI line year 2026 | Done | Title page |
+| Python and library versions checked | Done | Match the @@VER lines of the v7 logs (CPU 3.13.18, GPU 3.13.16) |
+| Zenodo DOI | **Author** | Requires the author's Zenodo account |
+| Contribution 3 grammar ("The evaluation also includes") | Done | Sec. I |
+| Reason for 10,000-record samples stated | Done | Sec. IV-J (TabPFN v2 training-set size; CPU cost of cross-fitting with tuning) |
+| Leakage claim scoped: significant on one of six datasets, same direction on the two larger ones | Done | Abstract, contribution 1, Conclusion |
